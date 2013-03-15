@@ -2,12 +2,15 @@
 
 --[[
 	Writer		: Dewr<wind8702@gmail.com>
-	Description	: a log checker searches text files while it's caring the time
-		range. I made it for my irc life with znc though it may work well with
-		other logs as well.
+	Description	: a log checker searches text files while it's caring about
+		the time range. I made it for my irc life with znc though it may work
+		well with other logs as well.
 ]]
---FIXME: it heavily depends on the modification time of files, so the file copied/modified by users will produce errors when this program is checking time range
---TODO: optimization for speed
+--FIXME: it heavily depends on the modification time of files, so the file
+--	copied/modified by users will produce errors when this program is checking
+--	time range
+--TODO: optimize for speed
+--TODO: increase portability
 
 require "alt_getopt"
 require "lfs"
@@ -16,7 +19,7 @@ require "lfs"
 local function run_it(func) return func() end
 local f
 
-local version = "2013.03.15"
+local version = "2013.03.15.2"
 local help_msg = [[check_logs.lua ]]..version.."\n\n"..[[
 SYNOPSIS
 	check_logs.lua [-e PATTERN] [-n PATTERN_FNAME] [-d DIRS] [-f FROM] [-t TO] [-v]
@@ -99,7 +102,7 @@ optarg,optind = alt_getopt.get_opts (arg, "e:x:n:d:t:f:hvb", long_opts)
 -- if h(help) is specified, print help_msg
 if optarg.h then
 	io.write(help_msg, "\n")
-	return
+	return 0
 end
 
 --local read_conf_file
@@ -158,8 +161,8 @@ for k,v in pairs(def_vals) do
 end
 
 if not optarg.e then
-	io.write("# No pattern is specified. specify -h/--help for help message.", "\n")
-	return
+	io.write("# No pattern is specified. Specify -h/--help for help message.", "\n")
+	return -2
 end
 
 local function tokens(s,d,i)
@@ -182,7 +185,8 @@ local function to_table(s,d)
 end
 
 local function int_divide(v1, v2) v1=v1/v2 return v1-v1%1 end
--- calculate the time for s, or false for an error
+-- calculate the time for s and return a date table in which date[time] is
+-- Unix timestamp or just return false+error_string for an error
 local function to_date(s, ref_date)
 	local s1,l2 = string.find(s, "[+-].*%a.*$")
 	if s1 then
@@ -466,6 +470,7 @@ local function start_search(path, lfs_data)
 		return cnt
 	end
 end
+
 if optarg.v then print("# starting the search.") end
 local total_cnt = 0
 for path in tokens(optarg.d, ",") do
@@ -479,5 +484,5 @@ for path in tokens(optarg.d, ",") do
 
 	total_cnt = total_cnt+start_search(path)
 end
-if optarg.v then io.write("# the number of cases : ", tostring(total_cnt), "\n") end
+io.write("\n","# the number of cases : ", tostring(total_cnt), "\n")
 return 0
