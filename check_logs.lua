@@ -51,8 +51,8 @@ LUA PATTERN
 	just 1:1 match for UTF-8 characters.
 
 TIME FORMAT
-	yyyymmddhh | yymmddhh | mmddhh | ddhh | hh | yyyy-mm-dd hh:mm:ss |
-	yy-mm-dd hh:mm | yyyy-mm-dd hh | yy-mm-dd | hh:mm | now |
+	yyyyMMddhh | yyMMddhh | MMddhh | ddhh | hh | yyyy-MM-dd hh:mm:ss |
+	yy-MM-dd mm:ss | yyyy-MM-dd hh | yy-MM-dd | hh:mm | now |
 	.+\s*[+-]\s*(\d+|an?)\s*(years?|months?|weeks?|days?|hours?|minutes?|seconds?)
 
 FILES
@@ -208,7 +208,7 @@ local function to_date(s, ref_date)
 	if string.find(s1, "^%s*now%s*$") then
 		date={time=now}
 	else if string.find(s1, "^%s*%d+%s*$") then
-		-- the format is like yyyymmddhh
+		-- the format is like yyyyMMddhh
 		local len = string.len(s1)
 		s1=tonumber(s1)
 		if len <= 2 then --hh
@@ -223,13 +223,13 @@ local function to_date(s, ref_date)
 			date.month = ref_date.month
 			date.day = int_divide(s1,100)
 			date.hour = s1%100
-		else if len <= 6 then --mmddhh
+		else if len <= 6 then --MMddhh
 			date={}
 			date.year = ref_date.year
 			date.month = int_divide(s1,10000)
 			date.day = int_divide(s1%10000, 100)
 			date.hour = s1%100
-		else if len <= 12 then --yyyymmddhh
+		else if len <= 12 then --yyyyMMddhh
 			date={}
 			date.year = int_divide(s1,1000000)
 			if len == 8 then
@@ -268,9 +268,13 @@ local function to_date(s, ref_date)
 			local indices={"sec","min","hour"}
 			local tmp = to_table(time_string, ":")
 			local j = 0
-			for i=#tmp,1,-1 do
-				j=j+1
-				date[indices[j]]=tmp[i]
+			if #tmp == 1 then
+				date.hour = tmp[1]
+			else
+				for i=#tmp,1,-1 do
+					j=j+1
+					date[indices[j]]=tmp[i]
+				end
 			end
 		end
 		if yday_string then
@@ -328,7 +332,9 @@ f = function(a)
 	end
 end
 optarg.f = f(optarg.f)
+if not optarg.f then return -1 end
 optarg.t = f(optarg.t)
+if not optarg.t then return -1 end
 
 if optarg.v then
 	local l
