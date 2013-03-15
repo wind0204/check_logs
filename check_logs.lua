@@ -25,6 +25,12 @@ OPTIONS
 	-e PATTERN, --exp=PATTERN
 		a vertical bar (|) separated list of lua patterns for which you want
 		to search.  see LUA PATTERN for details.
+	-x PATTERN_EXCEPT, --except=PATTERN_EXCEPT
+		a vertical bar (|) separated list of lua patterns for which this
+		program will not search. this program will try to match this pattern
+		with timestamp excluded text. ( "[MM-dd mm:ss] blah" -> "] blah" I
+		recommend you to use this like '-x "^[%p%s]*NICK[%p%s]"'. see
+		LUA PATTERN for details.
 	-n PATTERN_FNAME, --fname=PATTERN_FNAME
 		a vertical bar (|) separated list of lua patterns that is the pattern
 		for names of files in which you want to search. the default value is
@@ -57,6 +63,7 @@ FILES
 local long_opts = {
 	debug	= "b",
 	exp		= "e",
+	except	= "x",
 	fname	= "n",
 	dirs	= "d",
 	to		= "t",
@@ -81,12 +88,13 @@ local date_now = os.date("*t", now)
 local def_vals = {
 	d = "~/.znc/users",
 	n = "%..*log$",
+	x = "",
 	t = {time=now}
 }
 
 local optarg
 local optind
-optarg,optind = alt_getopt.get_opts (arg, "e:n:d:t:f:hvb", long_opts)
+optarg,optind = alt_getopt.get_opts (arg, "e:x:n:d:t:f:hvb", long_opts)
 
 -- if h(help) is specified, print help_msg
 if optarg.h then
@@ -94,14 +102,8 @@ if optarg.h then
 	return
 end
 
---[[
-for i = optind,#arg do
-	io.write (string.format ("ARGV [%s] = %s\n", i, arg [i]))
-end
-]]
-
 --local read_conf_file
-if not (optarg.f and optarg.t and optarg.d and optarg.n and optarg.e) then
+if not (optarg.f and optarg.t and optarg.d and optarg.n and optarg.x and optarg.e) then
 	run_it( function()
 		local conf_file
 		local err
@@ -327,13 +329,11 @@ f = function(a)
 end
 optarg.f = f(optarg.f)
 optarg.t = f(optarg.t)
-if (not optarg.f) or (not optarg.t) then
-	return
-end
 
 if optarg.v then
 	local l
 	io.write("# exp = '",optarg.e,"'","\n")
+	io.write("# except = '",optarg.x,"'","\n")
 	io.write("# fname = '",optarg.n,"'","\n")
 	io.write("# dirs = '",optarg.d,"'","\n")
 	if not optarg.f.sec then
@@ -353,6 +353,7 @@ if optarg.v then
 end
 
 optarg.e = to_table(optarg.e, "|")
+optarg.x = to_table(optarg.x, "|")
 optarg.n = to_table(optarg.n, "|")
 
 local function search_in_a_file(file, lfs_data)
@@ -389,11 +390,20 @@ local function search_in_a_file(file, lfs_data)
 					end
 				end
 				if b then
-					if cnt == 0 then
-						io.write("\n# @", file, "\n")
+					b = true
+					for i in next,optarg.x do
+						if string.find(line, optarg.x[i], e) then
+							b = false
+							break
+						end
 					end
-					cnt = cnt+1
-					io.write(" ", line, "\n")
+					if b then
+						if cnt == 0 then
+							io.write("\n# @", file, "\n")
+						end
+						cnt = cnt+1
+						io.write(" ", line, "\n")
+					end
 				end
 			--[[else if optarg.b then
 				io.write("# out of time range : ", line, "\n")]]
