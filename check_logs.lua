@@ -9,7 +9,6 @@
 --FIXME: it heavily depends on the modification time of files, so the file
 --	copied/modified by users will produce errors when this program is checking
 --	time range
---TODO: optimize for speed
 --TODO: increase portability
 
 require "alt_getopt"
@@ -367,7 +366,7 @@ optarg.x = to_table(optarg.x, "|")
 optarg.n = to_table(optarg.n, "|")
 
 local function search_in_a_file(file, lfs_data)
-	local h_file, err, d, b, c
+	local h_file, err, d, b, e
 	h_file,err = io.open(file)
 	if not h_file then
 		io.write("# couldn't open '",file,"'","(",err,")","\n")
@@ -384,8 +383,9 @@ local function search_in_a_file(file, lfs_data)
 		end
 	end
 	local ref_date = os.date("*t", lfs_data.modification)
-	io.input(h_file)
-	for line in io.lines() do
+	local line_checker = function(line)
+		-- return false if it didn't find a meaningful string, 0 if it did, 1 if line is
+		-- too old, -1 if line is too young
 		b,e,d = string.find(line, "^%s*%p?(%d[%d-:%s]*%d)[^%d]")
 		if d then
 			d,err = to_date(d, ref_date)
@@ -408,17 +408,189 @@ local function search_in_a_file(file, lfs_data)
 						end
 					end
 					if b then
-						if cnt == 0 then
-							io.write("\n# @", file, "\n")
-						end
-						cnt = cnt+1
-						io.write(" ", line, "\n")
+						return 0
 					end
 				end
-			--[[else if optarg.b then
-				io.write("# out of time range : ", line, "\n")]]
+			else
+				if d.time < optarg.f.time then
+					return 1
+				else
+					return -1
+				end
 			end end
 		end
+		return false
+	end
+	local date_checker = function(line)
+		-- return false if it is in range or couldn't get a timestamp from it, 1 if
+		-- the line is too old, -1 if it is too young
+		b,e,d = string.find(line, "^%s*%p?(%d[%d-:%s]*%d)[^%d]")
+		if d then
+			d,err = to_date(d, ref_date)
+			if d.time < optarg.f.time then
+				return 1
+			end
+			if d.time > optarg.t.time then
+				return -1
+			end
+		end
+		return false
+	end
+	local len_text_chunk = 64
+	local find_head = function(h_file, start_pos)
+		-- has a side effect that is shifting file cursor backward
+		local chunk
+		d = start_pos
+		while true do
+			if d == 0 then return 0 end
+			d = d - len_text_chunk
+			if d < 0 then d = 0 end
+			h_file:seek("set",d)
+			chunk = h_file:read(len_text_chunk)
+			b = string.find(chunk,"\n[^\n]*$")
+			if b then
+				return d+b
+			end
+		end
+	end
+	local basic_jmp_dist, short_dist_x2 = 4096, 192*2
+	local frontier, last_jmp_dist = 0,0
+	local is_backsearching
+	local line, ret
+	local cur = 0
+	local jump_forward = function()
+		if last_jmp_dist > 0 then
+			if is_backsearching then
+				d = last_jmp_dist/2
+			else
+				d = last_jmp_dist
+			end
+		else if last_jmp_dist < 0 then
+			d = -last_jmp_dist/2
+		else -- last_jmp_dist is 0
+			frontier = cur
+			d = basic_jmp_dist
+		end end
+		if cur+d >= lfs_data.size then
+			d = (lfs_data.size-cur)/2
+			if d < 1 then
+				d = 1
+			end
+		end
+		d = math.ceil(d)
+		cur,err = h_file:seek("set", cur+d)
+		last_jmp_dist = d
+		if not cur then
+			io.write("# It's a bug! file:seek(nil,",d,") failed : ",err,"\n")
+		end
+	end
+	local jump_backward = function()
+		if last_jmp_dist > 0 then
+			d = -last_jmp_dist/2
+		else
+			d = last_jmp_dist/2
+		end
+		d = math.floor(d)
+		cur,err = h_file:seek("set", cur+d)
+		is_backsearching=true
+		last_jmp_dist = d
+		if not cur then
+			io.write("# It's a bug! file:seek(nil,",d,") failed : ",err,"\n")
+		end
+	end
+	local walk_backward = function (start_pos)
+		-- stop jumping and find the head of lines
+		local last_head = start_pos
+		is_backsearching = false
+		last_jmp_dist = 0
+		while true do
+			last_head = find_head(h_file, last_head)
+			h_file:seek("set", last_head)
+			b = date_checker(h_file:read())
+			if b then
+				return
+			end
+			last_head = last_head-1
+			if last_head < 0 then
+				last_head = 0
+			end
+		end
+	end
+	local check_back = function()
+		-- return false if couldn't get a timestamp from it, 1 if the line is too
+		-- old, -1 if it is too young, 0 if it is in time range
+		local ori_pos = cur
+		local last_head = cur
+		while true do
+			last_head = find_head(h_file, last_head)
+			--[[if last_head == 0 then
+				h_file:seek("set", ori_pos)
+				return false, 0
+			end]]
+			h_file:seek("set", last_head)
+			b,e,d = string.find(h_file:read(), "^%s*%p?(%d[%d-:%s]*%d)[^%d]")
+			if d then
+				d,err = to_date(d, ref_date)
+				h_file:seek("set", ori_pos)
+				if d.time < optarg.f.time then
+					return 1, last_head
+				end
+				if d.time > optarg.t.time then
+					return -1, last_head
+				end
+				return 0, last_head
+			end
+			last_head = last_head-1
+			if last_head < 0 then
+				last_head = 0
+			end
+		end
+	end
+	while true do
+		if last_jmp_dist ~= 0 then
+			h_file:seek("set", find_head(h_file, cur))
+			line = h_file:read()
+		else
+			line = h_file:read()
+			cur = h_file:seek() - 1
+		end
+		if not line then
+			break
+		end
+		ret = line_checker(line)
+		if ret then
+			if ret == 0 then -- found some meaningful text
+				if last_jmp_dist == 0 then
+					if cnt == 0 then
+						io.write("\n# @", file, "\n")
+					end
+					cnt = cnt+1
+					io.write(" ", line, "\n")
+				else
+					if math.abs(last_jmp_dist) > short_dist_x2 then
+						jump_backward()
+					else
+						walk_backward(cur)
+					end
+				end
+			else if ret > 0 then -- older than optarg.f
+				jump_forward()
+			else -- younger than optarg.t
+				if last_jmp_dist == 0 then
+					break
+				end
+				jump_backward()
+			end end
+		else if last_jmp_dist ~= 0 then
+			b,d = check_back(true)
+			if b > 0 then -- older than optarg.f
+				jump_forward()
+			else if b < 0 then -- younger than optarg.t
+				jump_backward()
+			else if b == 0 then -- in time range
+				walk_backward(d)
+			end end end
+		end end
 	end
 	h_file:close()
 	return cnt
@@ -485,4 +657,5 @@ for path in tokens(optarg.d, ",") do
 	total_cnt = total_cnt+start_search(path)
 end
 io.write("\n","# the number of cases : ", tostring(total_cnt), "\n")
+if optarg.v or optarg.b then io.write("# elapsed time : about ",os.time()-now,"(±1) secs","\n") end
 return 0
