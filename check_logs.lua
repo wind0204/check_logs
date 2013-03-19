@@ -14,11 +14,9 @@
 require "alt_getopt"
 require "lfs"
 
--- run an anonymous function
-local function run_it(func) return func() end
-local f
+local a_local_func
 
-local version = "2013.03.15.2"
+local version = "2013.03.20"
 local help_msg = [[check_logs.lua ]]..version.."\n\n"..[[
 SYNOPSIS
 	check_logs.lua [-e PATTERN] [-n PATTERN_FNAME] [-d DIRS] [-f FROM] [-t TO] [-v]
@@ -106,18 +104,14 @@ end
 
 --local read_conf_file
 if not (optarg.f and optarg.t and optarg.d and optarg.n and optarg.x and optarg.e) then
-	run_it( function()
-		local conf_file
-		local err
-		--FIXME: would it work in Windows?
-		conf_file,err = io.open(os.getenv("HOME").."/.config/check_logs.conf")
-		if not conf_file then
-			if optarg.v then io.write("# couldn't open the configuration file : ",err,"\n") end
-			return
-		end
-
-		io.input(conf_file)
-		for line in io.lines() do
+	local conf_file
+	local err
+	--FIXME: would it work in Windows?
+	conf_file,err = io.open(os.getenv("HOME").."/.config/check_logs.conf")
+	if not conf_file then
+		if optarg.v then io.write("# couldn't open the configuration file : ",err,"\n") end
+	else
+		for line in conf_file:lines() do
 			if not string.find(line, "^%s*#") then
 				local key,value
 				key, value = string.match(line, "^%s*(%w+)%s*=%s*(.*)%s*$")
@@ -131,24 +125,19 @@ if not (optarg.f and optarg.t and optarg.d and optarg.n and optarg.x and optarg.
 			end
 		end
 		conf_file.close(conf_file)
-	end)
+	end
 end
 
 if not (def_vals.f or optarg.f) then
-	local l
-	if optarg.t then
-		l = optarg.t
-	else
-		l = def_vals.t
-	end
+	local opt = optarg.t or def_vals.t
 
-	if type(l) == "table" then
-		def_vals.f = {time=l.time - time_keywords.day}
+	if type(opt) == "table" then
+		def_vals.f = {time=opt.time - time_keywords.day}
 		if def_vals.f.time < 0 then
 			def_vals.f.time = 0
 		end
 	else
-		def_vals.f = l.."-aday"
+		def_vals.f = opt.."-aday"
 	end
 end
 
@@ -165,7 +154,7 @@ if not optarg.e then
 end
 
 local function tokens(s,d,i)
-	state = {string=s, pattern="([^"..d.."]+)", cursor=i or 1}
+	local state = {string=s, pattern="([^"..d.."]+)", cursor=i or 1}
 	local function iter_tokens(state)
 		local pos_b, pos_e, ret = string.find(state.string, state.pattern, state.cursor)
 		if not pos_b then return nil end
@@ -320,23 +309,23 @@ local function to_date(s, ref_date)
 	return date
 end
 
-f = function(a)
-	local l
-	if type(a) ~= "table" then
-		a,l = to_date(a, date_now)
-		if not a then
-			io.write("# error! ", l, "\n")
+a_local_func = function(opt)
+	local err
+	if type(opt) ~= "table" then
+		opt,err = to_date(opt, date_now)
+		if not opt then
+			io.write("# error! ", err, "\n")
 			return false
 		else
-			return a
+			return opt
 		end
 	else
-		return a
+		return opt
 	end
 end
-optarg.f = f(optarg.f)
+optarg.f = a_local_func(optarg.f)
 if not optarg.f then return -1 end
-optarg.t = f(optarg.t)
+optarg.t = a_local_func(optarg.t)
 if not optarg.t then return -1 end
 
 if optarg.v then
@@ -383,6 +372,12 @@ local function search_in_a_file(file, lfs_data)
 		end
 	end
 	local ref_date = os.date("*t", lfs_data.modification)
+	local basic_jmp_dist, short_dist_x2 = 4096, 192*2
+	local last_jmp_dist = 0,0
+	local is_backsearching
+	local line, ret
+	local cur = 0
+
 	local line_checker = function(line)
 		-- return false if it didn't find a meaningful string, 0 if it did, 1 if line is
 		-- too old, -1 if line is too young
@@ -453,11 +448,6 @@ local function search_in_a_file(file, lfs_data)
 			end
 		end
 	end
-	local basic_jmp_dist, short_dist_x2 = 4096, 192*2
-	local frontier, last_jmp_dist = 0,0
-	local is_backsearching
-	local line, ret
-	local cur = 0
 	local jump_forward = function()
 		if last_jmp_dist > 0 then
 			if is_backsearching then
@@ -468,7 +458,6 @@ local function search_in_a_file(file, lfs_data)
 		else if last_jmp_dist < 0 then
 			d = -last_jmp_dist/2
 		else -- last_jmp_dist is 0
-			frontier = cur
 			d = basic_jmp_dist
 		end end
 		if cur+d >= lfs_data.size then
@@ -546,6 +535,7 @@ local function search_in_a_file(file, lfs_data)
 			end
 		end
 	end
+
 	while true do
 		if last_jmp_dist ~= 0 then
 			h_file:seek("set", find_head(h_file, cur))
@@ -595,6 +585,7 @@ local function search_in_a_file(file, lfs_data)
 	h_file:close()
 	return cnt
 end
+
 local function start_search(path, lfs_data)
 	local len = string.len(path)
 	if string.find(path,"/",len,true) then
@@ -647,7 +638,7 @@ if optarg.v then print("# starting the search.") end
 local total_cnt = 0
 for path in tokens(optarg.d, ",") do
 	if path == "~" then
-		patn = os.getenv("HOME")
+		path = os.getenv("HOME")
 	else
 		path = string.gsub(path, "^~/", os.getenv("HOME").."/")
 		path = string.gsub(path, "%$(%w+)", os.getenv)
