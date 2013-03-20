@@ -16,10 +16,10 @@ require "lfs"
 
 local a_local_func
 
-local version = "2013.03.20"
-local help_msg = [[check_logs.lua ]]..version.."\n\n"..[[
+local version = "2013.03.20.1"
+local help_msg = [[check_logs ]]..version.."\n\n"..[[
 SYNOPSIS
-	check_logs.lua [-e PATTERN] [-n PATTERN_FNAME] [-d DIRS] [-f FROM] [-t TO] [-v]
+	]]..arg[0]..[[ [-e PATTERN] [-n PATTERN_FNAME] [-d DIRS] [-f FROM] [-t TO] [-v]
 
 OPTIONS
 	-e PATTERN, --exp=PATTERN
@@ -32,17 +32,17 @@ OPTIONS
 		recommend you to use this like '-x "^[%p%s]*NICK[%p%s]"'. see
 		LUA PATTERN for details.
 	-n PATTERN_FNAME, --fname=PATTERN_FNAME
-		a vertical bar (|) separated list of lua patterns that is the pattern
-		for names of files in which you want to search. the default value is
-		"%..*log$". see LUA PATTERN for details.
+		a vertical bar (|) separated list of lua patterns that are the
+		patterns for names of files in which you want to search. the default
+		value is "%..*log$". see LUA PATTERN for details.
 	-d DIRS, --dirs=DIRS
 		a comma separated list of directories in which log files are saved.
 		all log files are read recursively from the root directories. the
 		default value is "~/.znc/users/".
 	-t TO, --to=TO
-		the default value is = now, see TIME FORMAT for details.
+		the default value is = "now", see TIME FORMAT for details.
 	-f FROM, --from=FROM
-		the default value is = TO - 24 hours, see TIME FORMAT for details.
+		the default value is = "TO - 24 hours", see TIME FORMAT for details.
 
 LUA PATTERN
 	Lua patterns are somehow same but a little different with the regular
@@ -52,7 +52,7 @@ LUA PATTERN
 
 TIME FORMAT
 	yyyyMMddhh | yyMMddhh | MMddhh | ddhh | hh | yyyy-MM-dd hh:mm:ss |
-	yy-MM-dd mm:ss | yyyy-MM-dd hh | yy-MM-dd | hh:mm | now |
+	yy-MM-dd mm:ss | yyyy-MM-dd hh | yy-MM-dd | hh:mm | now | TO |
 	.+\s*[+-]\s*(\d+|an?)\s*(years?|months?|weeks?|days?|hours?|minutes?|seconds?)
 
 FILES
@@ -89,7 +89,8 @@ local def_vals = {
 	d = "~/.znc/users",
 	n = "%..*log$",
 	x = "",
-	t = {time=now}
+	t = {time=now},
+	f = "TO-aday"
 }
 
 local optarg
@@ -125,19 +126,6 @@ if not (optarg.f and optarg.t and optarg.d and optarg.n and optarg.x and optarg.
 			end
 		end
 		conf_file.close(conf_file)
-	end
-end
-
-if not (def_vals.f or optarg.f) then
-	local opt = optarg.t or def_vals.t
-
-	if type(opt) == "table" then
-		def_vals.f = {time=opt.time - time_keywords.day}
-		if def_vals.f.time < 0 then
-			def_vals.f.time = 0
-		end
-	else
-		def_vals.f = opt.."-aday"
 	end
 end
 
@@ -199,6 +187,8 @@ local function to_date(s, ref_date)
 	local date
 	if string.find(s1, "^%s*now%s*$") then
 		date={time=now}
+	else if string.find(s1, "^%s*TO%s*$") then
+		date={time=optarg.t.time}
 	else if string.find(s1, "^%s*%d+%s*$") then
 		-- the format is like yyyyMMddhh
 		local len = string.len(s1)
@@ -280,7 +270,7 @@ local function to_date(s, ref_date)
 		end
 
 		date.time=os.time(date)
-	end end
+	end end end
 
 	-- if it is containing a modifier
 	if l2 then
@@ -323,10 +313,10 @@ a_local_func = function(opt)
 		return opt
 	end
 end
-optarg.f = a_local_func(optarg.f)
-if not optarg.f then return -1 end
 optarg.t = a_local_func(optarg.t)
 if not optarg.t then return -1 end
+optarg.f = a_local_func(optarg.f)
+if not optarg.f then return -1 end
 
 if optarg.v then
 	local l
