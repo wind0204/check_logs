@@ -16,48 +16,52 @@ require "lfs"
 
 local a_local_func
 
-local version = "2013.03.20.1"
+local version = "2013.03.23"
 local help_msg = [[check_logs ]]..version.."\n\n"..[[
 SYNOPSIS
-	]]..arg[0]..[[ [-e PATTERN] [-n PATTERN_FNAME] [-d DIRS] [-f FROM] [-t TO] [-v]
+    ]]..arg[0]..[[ [OPTIONS...]
 
 OPTIONS
-	-e PATTERN, --exp=PATTERN
-		a vertical bar (|) separated list of lua patterns for which you want
-		to search.  see LUA PATTERN for details.
-	-x PATTERN_EXCEPT, --except=PATTERN_EXCEPT
-		a vertical bar (|) separated list of lua patterns for which this
-		program will not search. this program will try to match this pattern
-		with timestamp excluded text. ( "[MM-dd mm:ss] blah" -> "] blah" I
-		recommend you to use this like '-x "^[%p%s]*NICK[%p%s]"'. see
-		LUA PATTERN for details.
-	-n PATTERN_FNAME, --fname=PATTERN_FNAME
-		a vertical bar (|) separated list of lua patterns that are the
-		patterns for names of files in which you want to search. the default
-		value is "%..*log$". see LUA PATTERN for details.
-	-d DIRS, --dirs=DIRS
-		a comma separated list of directories in which log files are saved.
-		all log files are read recursively from the root directories. the
-		default value is "~/.znc/users/".
-	-t TO, --to=TO
-		the default value is = "now", see TIME FORMAT for details.
-	-f FROM, --from=FROM
-		the default value is = "TO - 24 hours", see TIME FORMAT for details.
+    -e PATTERN, --exp=PATTERN
+        a vertical bar (|) separated list of lua patterns for which you want
+        to search.  see LUA PATTERN for details.
+    -x PATTERN_EXCEPT, --except=PATTERN_EXCEPT
+        a vertical bar (|) separated list of lua patterns for which this
+        program will not search. this program will try to match this pattern
+        with timestamp excluded text. ( "[MM-dd mm:ss] blah" -> "] blah" I
+        recommend you to use this like '-x "^[%p%s]*NICK[%p%s]"'. see
+        LUA PATTERN for details.
+    -n PATTERN_FNAME, --fname=PATTERN_FNAME
+        a vertical bar (|) separated list of lua patterns that are the
+        patterns for names of files in which you want to search. the default
+        value is "%..*log$". see LUA PATTERN for details.
+    -d DIRS, --dirs=DIRS
+        a comma separated list of directories in which log files are saved.
+        all log files are read recursively from the root directories. the
+        default value is "~/.znc/users/".
+    -t TO, --to=TO
+        the default value is = "now", see TIME FORMAT for details.
+    -f FROM, --from=FROM
+        the default value is = "TO - 24 hours", see TIME FORMAT for details.
+    -v, --verbose
+        be more verbose.
+    -h, --help
+        print this help and exit.
 
 LUA PATTERN
-	Lua patterns are somehow same but a little different with the regular
-	expressions, and lua patterns are way less powerful. e.g. no support for
-	{n1,n2}, (?i)foobar and (foo|bar). And, you can't do some trick other than
-	just 1:1 match for UTF-8 characters.
+    Lua patterns are somehow same but a little different with the regular
+    expressions, and lua patterns are way less powerful. e.g. no support for
+    {n1,n2}, (?i)foobar and (foo|bar). And, you can't do some trick other than
+    just 1:1 match for UTF-8 characters.
 
 TIME FORMAT
-	yyyyMMddhh | yyMMddhh | MMddhh | ddhh | hh | yyyy-MM-dd hh:mm:ss |
-	yy-MM-dd mm:ss | yyyy-MM-dd hh | yy-MM-dd | hh:mm | now | TO |
-	.+\s*[+-]\s*(\d+|an?)\s*(years?|months?|weeks?|days?|hours?|minutes?|seconds?)
+    yyyyMMddhh | yyMMddhh | MMddhh | ddhh | hh | yyyy-MM-dd hh:mm:ss |
+    yy-MM-dd mm:ss | yyyy-MM-dd hh | yy-MM-dd | hh:mm | now | TO |
+    .+\s*[+-]\s*(\d+|an?)\s*(years?|months?|weeks?|days?|hours?|minutes?|seconds?)
 
 FILES
-	$HOME/.config/check_logs.conf
-		main configuration file]]
+    $HOME/.config/check_logs.conf
+        main configuration file]]
 
 -- getopt options
 local long_opts = {
@@ -110,7 +114,7 @@ if not (optarg.f and optarg.t and optarg.d and optarg.n and optarg.x and optarg.
 	--FIXME: would it work in Windows?
 	conf_file,err = io.open(os.getenv("HOME").."/.config/check_logs.conf")
 	if not conf_file then
-		if optarg.v then io.write("# couldn't open the configuration file : ",err,"\n") end
+		if optarg.v or optarg.b then io.write("# couldn't open the configuration file : ",err,"\n") end
 	else
 		for line in conf_file:lines() do
 			if not string.find(line, "^%s*#") then
@@ -318,7 +322,7 @@ if not optarg.t then return -1 end
 optarg.f = a_local_func(optarg.f)
 if not optarg.f then return -1 end
 
-if optarg.v then
+if optarg.v or optarg.b then
 	local l
 	io.write("# exp = '",optarg.e,"'","\n")
 	io.write("# except = '",optarg.x,"'","\n")
@@ -357,7 +361,7 @@ local function search_in_a_file(file, lfs_data)
 	if not lfs_data then
 		lfs_data,err = lfs.attributes(file)
 		if not lfs_data then
-			if optarg.v then io.write("# can't get attributes of the file : ", err, "\n") end
+			if optarg.v or optarg.b then io.write("# can't get attributes of the file : ", err, "\n") end
 			return 0,err
 		end
 	end
@@ -375,7 +379,7 @@ local function search_in_a_file(file, lfs_data)
 		if d then
 			d,err = to_date(d, ref_date)
 			if not d then
-				if optarg.b then print(err) end
+				if optarg.b then io.write("# failed to_date : ", err, "\n") end
 			else if d.time <= optarg.t.time and d.time >= optarg.f.time then
 				b = false
 				for i in next,optarg.e do
@@ -459,9 +463,6 @@ local function search_in_a_file(file, lfs_data)
 		d = math.ceil(d)
 		cur,err = h_file:seek("set", cur+d)
 		last_jmp_dist = d
-		if not cur then
-			io.write("# It's a bug! file:seek(nil,",d,") failed : ",err,"\n")
-		end
 	end
 	local jump_backward = function()
 		if last_jmp_dist > 0 then
@@ -473,9 +474,6 @@ local function search_in_a_file(file, lfs_data)
 		cur,err = h_file:seek("set", cur+d)
 		is_backsearching=true
 		last_jmp_dist = d
-		if not cur then
-			io.write("# It's a bug! file:seek(nil,",d,") failed : ",err,"\n")
-		end
 	end
 	local walk_backward = function (start_pos)
 		-- stop jumping and find the head of lines
@@ -542,7 +540,7 @@ local function search_in_a_file(file, lfs_data)
 			if ret == 0 then -- found some meaningful text
 				if last_jmp_dist == 0 then
 					if cnt == 0 then
-						io.write("\n# @", file, "\n")
+						io.write("\n#@ ", file, "\n")
 					end
 					cnt = cnt+1
 					io.write(" ", line, "\n")
@@ -585,7 +583,7 @@ local function start_search(path, lfs_data)
 	if not lfs_data then
 		lfs_data,len = lfs.attributes(path)
 		if not lfs_data then
-			if optarg.v then io.write("# can't get attributes of the file : ", len, "\n") end
+			if optarg.v or optarg.b then io.write("# can't get attributes of the file : ", len, "\n") end
 			return 0,len
 		end
 	end
@@ -638,5 +636,5 @@ for path in tokens(optarg.d, ",") do
 	total_cnt = total_cnt+start_search(path)
 end
 io.write("\n","# the number of cases : ", tostring(total_cnt), "\n")
-if optarg.v or optarg.b then io.write("# elapsed time : about ",os.time()-now,"(±1) secs","\n") end
+io.write("# elapsed time : about ",os.time()-now,"(±1) secs","\n")
 return 0
