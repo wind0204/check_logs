@@ -429,13 +429,15 @@ local function search_in_a_file(file, lfs_data)
 	local find_head = function(h_file, start_pos)
 		-- has a side effect that is shifting file cursor backward
 		local chunk
+		local len
 		d = start_pos
 		while true do
 			if d == 0 then return 0 end
+			len = len_text_chunk
 			d = d - len_text_chunk
-			if d < 0 then d = 0 end
+			if d < 0 then len=len+d d = 0 end
 			h_file:seek("set",d)
-			chunk = h_file:read(len_text_chunk)
+			chunk = h_file:read(len)
 			b = string.find(chunk,"\n[^\n]*$")
 			if b then
 				return d+b
