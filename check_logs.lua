@@ -39,6 +39,8 @@ OPTIONS
         a comma separated list of directories in which log files are saved.
         all log files are read recursively from the root directories. the
         default value is "~/.znc/users/".
+    -X DIRS_EXCLUDE, --exclude=DIRS_EXCLUDE
+        a comma separated list of directories that are excluded in search.
     -t TO, --to=TO
         the default value is = "now", see TIME FORMAT for details.
     -f FROM, --from=FROM
@@ -70,6 +72,7 @@ local long_opts = {
 	except	= "x",
 	fname	= "n",
 	dirs	= "d",
+	exclude	= "X",
 	to		= "t",
 	from	= "f",
 	verbose	= "v",
@@ -90,16 +93,17 @@ local date_now = os.date("*t", now)
 
 -- default values
 local def_vals = {
-	d = "~/.znc/users",
-	n = "%..*log$",
 	x = "",
+	n = "%..*log$",
+	d = "~/.znc/users",
+	X = "",
 	t = {time=now},
 	f = "TO-aday"
 }
 
 local optarg
 local optind
-optarg,optind = alt_getopt.get_opts (arg, "e:x:n:d:t:f:hvb", long_opts)
+optarg,optind = alt_getopt.get_opts (arg, "e:x:n:d:X:t:f:hvb", long_opts)
 
 -- if h(help) is specified, print help_msg
 if optarg.h then
@@ -108,7 +112,7 @@ if optarg.h then
 end
 
 --local read_conf_file
-if not (optarg.f and optarg.t and optarg.d and optarg.n and optarg.x and optarg.e) then
+if not (optarg.f and optarg.t and optarg.d and optarg.X and optarg.n and optarg.x and optarg.e) then
 	local conf_file
 	local err
 	--FIXME: would it work in Windows?
@@ -124,6 +128,7 @@ if not (optarg.f and optarg.t and optarg.d and optarg.n and optarg.x and optarg.
 					for k,v in pairs(long_opts) do
 						if k == key then
 							def_vals[v] = value
+							break
 						end
 					end
 				end
@@ -328,6 +333,7 @@ if optarg.v or optarg.b then
 	io.write("# except = '",optarg.x,"'","\n")
 	io.write("# fname = '",optarg.n,"'","\n")
 	io.write("# dirs = '",optarg.d,"'","\n")
+	io.write("# exclude = '",optarg.X,"'","\n")
 	if not optarg.f.sec then
 		l = optarg.f.time
 		optarg.f = os.date("*t", l)
@@ -346,6 +352,7 @@ end
 
 optarg.e = to_table(optarg.e, "|")
 optarg.x = to_table(optarg.x, "|")
+optarg.X = to_table(optarg.X, ",")
 optarg.n = to_table(optarg.n, "|")
 
 local function search_in_a_file(file, lfs_data)
@@ -592,6 +599,11 @@ local function start_search(path, lfs_data)
 	if lfs_data.mode ~= "directory" then
 		return search_in_a_file(path, lfs_data)
 	else
+		for i in next,optarg.X do
+			if optarg.X[i]==path then
+				return 0
+			end
+		end
 		if optarg.v then io.write("# searching in '",path,"'","\n") end
 		local cnt = 0
 		local b
@@ -605,6 +617,7 @@ local function start_search(path, lfs_data)
 						for i in next, optarg.n do
 							if string.find(file, optarg.n[i]) then
 								b = true
+								break
 							end
 						end
 						if b then
@@ -624,18 +637,42 @@ local function start_search(path, lfs_data)
 	end
 end
 
-if optarg.v then print("# starting the search.") end
-local total_cnt = 0
-for path in tokens(optarg.d, ",") do
+local function decode_file_path(path)
+	local new_path = false
+	local len = string.len(path)
+
+	if string.find(path,"/",len,true) then
+		--FIXME: "\" will be used instead in Windows
+		new_path = string.sub(path,1,len-1)
+		path = new_path
+	end
+
 	if path == "~" then
-		path = os.getenv("HOME")
+		new_path = os.getenv("HOME")
 	else
-		path = string.gsub(path, "^~/", os.getenv("HOME").."/")
-		path = string.gsub(path, "%$(%w+)", os.getenv)
+		new_path = string.gsub(path, "^~/", os.getenv("HOME").."/")
+		new_path = string.gsub(new_path, "%$(%w+)", os.getenv)
 	end
 	--FIXME: would it work in Windows?
 
-	total_cnt = total_cnt+start_search(path)
+	return new_path
+end
+
+for i in next,optarg.X do
+	local new_path
+	local path = optarg.X[i]
+
+	new_path = decode_file_path(path)
+	if new_path then optarg.X[i] = new_path end
+end
+
+if optarg.v then print("# starting the search.") end
+local total_cnt = 0
+for path in tokens(optarg.d, ",") do
+	local new_path
+	new_path = decode_file_path(path)
+
+	total_cnt = total_cnt+start_search(new_path or path)
 end
 io.write("\n","# the number of cases : ", tostring(total_cnt), "\n")
 io.write("# elapsed time : about ",os.time()-now,"(±1) secs","\n")
