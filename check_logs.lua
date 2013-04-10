@@ -607,7 +607,12 @@ local function start_search(path, lfs_data)
 		if optarg.v then io.write("# searching in '",path,"'","\n") end
 		local cnt = 0
 		local b
+		local files = {}
 		for file in lfs.dir(path) do
+			table.insert(files, file)
+		end
+		table.sort(files)
+		for k,file in ipairs(files) do
 			if file ~= "." and file ~= ".." then
 				file = path.."/"..file
 				lfs_data = lfs.attributes(file)
